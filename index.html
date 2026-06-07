@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Spelling Catch Game</title>
+
+<style>
+body { margin:0; background:black; color:white; }
+canvas { display:block; margin:auto; background:#0a0a1e; }
+</style>
+</head>
+
+<body>
+
+<canvas id="game" width="600" height="400"></canvas>
+
+<script>
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// ✅ WORDS
+const wordList = ["CAT","DOG","SUN","TREE","BALL","HAIR","EYES","MOUTH","HAND","LEG"];
+
+// ✅ SAFE IMAGE LOAD
+function loadImage(src){
+    let img = new Image();
+    img.src = src;
+    return img;
+}
+
+const images = {};
+wordList.forEach(w => images[w] = loadImage(w.toLowerCase()+".jpeg"));
+
+// ✅ SHUFFLE
+function shuffle(arr){
+    for(let i=arr.length-1;i>0;i--){
+        let j=Math.floor(Math.random()*(i+1));
+        [arr[i],arr[j]]=[arr[j],arr[i]];
+    }
+}
+
+let availableWords=[...wordList];
+shuffle(availableWords);
+
+function getNextWord(){
+    if(availableWords.length===0){
+        availableWords=[...wordList];
+        shuffle(availableWords);
+    }
+    return availableWords.pop();
+}
+
+// ✅ GAME STATE
+let level=1, score=0, lives=3;
+let playerX=280;
+
+let paused=false;
+let showGallery=false;
+let showImage=false;
+let completedWord="";
+let gallery=[];
+let completedSet=new Set();
+
+// ✅ BUTTONS
+let btnLeft={x:10,y:330,w:60,h:40};
+let btnRight={x:530,y:330,w:60,h:40};
+let btnEnter={x:250,y:330,w:100,h:40};
+let btnPause={x:100,y:330,w:100,h:40};
+let btnGallery={x:380,y:330,w:120,h:40};
+
+let moveLeft=false;
+let moveRight=false;
+
+let touchStartX=0;
+
+// ✅ SOUND
+function playClickSound(){
+    try{
+        const audio=new (window.AudioContext||window.webkitAudioContext)();
+        const osc=audio.createOscillator();
+        const gain=audio.createGain();
+        osc.connect(gain);
+        gain.connect(audio.destination);
+        osc.frequency.value=300;
+        gain.gain.value=0.2;
+        osc.start();
+        osc.stop(audio.currentTime+0.05);
+    }catch(e){}
+}
+
+// ✅ SPEECH (SAFE)
+function speak(text){
+    try{
+        speechSynthesis.cancel();
+        let msg=new SpeechSynthesisUtterance(text);
+        msg.rate=0.9;
+        speechSynthesis.speak(msg);
+    }catch(e){}
+}
+
+document.body.onclick=()=>speechSynthesis.resume();
+
+// ✅ GAME CREATE
+function newGame(){
+    let word=getNextWord();
+    return {
+        target:word,
+        progress:"",
+        x:Math.random()*550,
+        y:-20,
+        letter:word[0],
+        speed:3+level,
+        attempts:0
+    };
+}
+
+let game=newGame();
+
+// ✅ INPUT
+let keys={};
+
+document.addEventListener("keydown",(e)=>{
+    keys[e.key]=true;
+
+    if(e.key==="p") paused=!paused;
+    if(e.key==="g") showGallery=!showGallery;
+
+    if(showImage && e.key==="Enter"){
+        showImage=false;
+        game=newGame();
+    }
+});
+
+document.addEventListener("keyup",(e)=>keys[e.key]=false);
+
+// ✅ TOUCH
+canvas.addEventListener("touchstart",(e)=>{
+    if(!e.touches || e.touches.length===0) return;
+
+    let x=e.touches[0].clientX-canvas.offsetLeft;
+    let y=e.touches[0].clientY-canvas.offsetTop;
+
+    touchStartX=e.touches[0].clientX;
+
+    if(x>btnLeft.x && y>btnLeft.y && x<btnLeft.x+btnLeft.w && y<btnLeft.y+btnLeft.h){ moveLeft=true; playClickSound(); }
+    if(x>btnRight.x && y>btnRight.y && x<btnRight.x+btnRight.w && y<btnRight.y+btnRight.h){ moveRight=true; playClickSound(); }
+
+    if(x>btnEnter.x && y>btnEnter.y && x<btnEnter.x+btnEnter.w && y<btnEnter.y+btnEnter.h){
+        if(showImage){ showImage=false; game=newGame(); }
+        playClickSound();
+    }
+
+    if(x>btnPause.x && y>btnPause.y && x<btnPause.x+btnPause.w && y<btnPause.y+btnPause.h){
+        paused=!paused; playClickSound();
+    }
+
+    if(x>btnGallery.x && y>btnGallery.y && x<btnGallery.x+btnGallery.w && y<btnGallery.y+btnGallery.h){
+        showGallery=!showGallery; playClickSound();
+    }
+});
+
+canvas.addEventListener("touchmove",(e)=>{
+    if(!e.touches || e.touches.length===0) return;
+
+    let currentX=e.touches[0].clientX;
+    let delta=currentX-touchStartX;
+
+    playerX+=delta*0.3;
+    touchStartX=currentX;
+});
+
+canvas.addEventListener("touchend",()=>{ moveLeft=false; moveRight=false; });
+
+// ✅ RANDOM LETTER
+function randomLetter(){
+    return String.fromCharCode(65+Math.floor(Math.random()*26));
+}
+
+// ✅ LOOP
+function update(){
+
+    ctx.clearRect(0,0,600,400);
+    ctx.font="16px Arial";
+
+    // ✅ PAUSE
+    if(paused){
+        ctx.fillStyle="yellow";
+        ctx.font="30px Arial";
+        ctx.fillText("PAUSED",220,200);
+        return requestAnimationFrame(update);
+    }
+
+    // ✅ GALLERY
+    if(showGallery){
+        ctx.fillStyle="white";
+        ctx.fillText("GALLERY",250,40);
+
+        let x=40, y=80;
+        gallery.forEach(w=>{
+            if(images[w]) ctx.drawImage(images[w],x,y,80,80);
+            ctx.fillText(w,x,y+100);
+            x+=100;
+            if(x>500){ x=40; y+=140; }
+        });
+
+        return requestAnimationFrame(update);
+    }
+
+    // ✅ IMAGE
+    if(showImage){
+        if(images[completedWord]){
+            ctx.drawImage(images[completedWord],200,80,200,200);
+        }
+        ctx.fillText("Press ENTER",230,320);
+        return requestAnimationFrame(update);
+    }
+
+    // ✅ MOVE
+    if(keys["ArrowLeft"]||moveLeft) playerX-=5;
+    if(keys["ArrowRight"]||moveRight) playerX+=5;
+
+    if(playerX<0) playerX=0;
+    if(playerX>550) playerX=550;
+
+    ctx.fillStyle="blue";
+    ctx.fillRect(playerX,350,50,30);
+
+    // ✅ STAR
+    game.y+=game.speed;
+
+    ctx.beginPath();
+    ctx.arc(game.x,game.y,20,0,Math.PI*2);
+    ctx.fillStyle="yellow";
+    ctx.fill();
+
+    ctx.fillStyle="black";
+    ctx.fillText(game.letter,game.x-5,game.y+5);
+
+    let next=game.target[game.progress.length];
+
+    if(game.y>400){
+        game.y=-20;
+        game.x=Math.random()*550;
+        game.attempts++;
+
+        game.letter = (game.attempts>=5) ? next :
+            (Math.random()<0.5 ? next : randomLetter());
+
+        if(game.attempts>=5) game.attempts=0;
+    }
+
+    // ✅ COLLISION
+    if(game.y>=350 && game.x>playerX && game.x<playerX+50){
+
+        if(game.letter===next){
+
+            playClickSound();
+
+            game.progress+=game.letter;
+            score++;
+
+            if(game.progress===game.target){
+
+                completedWord=game.target;
+                speak(completedWord);
+
+                if(!gallery.includes(completedWord)){
+                    gallery.push(completedWord);
+                }
+
+                completedSet.add(completedWord);
+
+                if(completedSet.size===wordList.length){
+                    level++;
+                    game.speed=3+level;
+                    completedSet.clear();
+                }
+
+                score+=5;
+                showImage=true;
+            }
+
+        } else {
+            lives--;
+        }
+
+        game.y=-20;
+        game.x=Math.random()*550;
+    }
+
+    // ✅ UI
+    ctx.fillStyle="white";
+    ctx.fillText("Word: "+game.target,10,20);
+    ctx.fillText("Score: "+score,10,40);
+    ctx.fillText("Level: "+level,10,60);
+    ctx.fillText("Lives: "+lives,10,80);
+
+    let p="";
+    for(let i=0;i<game.target.length;i++){
+        p+=i<game.progress.length?game.progress[i]+" ":"_ ";
+    }
+    ctx.fillText("Progress: "+p,10,110);
+
+    // ✅ BUTTONS
+    ctx.fillStyle="rgba(255,255,255,0.3)";
+    ctx.fillRect(btnLeft.x,btnLeft.y,btnLeft.w,btnLeft.h);
+    ctx.fillRect(btnRight.x,btnRight.y,btnRight.w,btnRight.h);
+    ctx.fillRect(btnEnter.x,btnEnter.y,btnEnter.w,btnEnter.h);
+    ctx.fillRect(btnPause.x,btnPause.y,btnPause.w,btnPause.h);
+    ctx.fillRect(btnGallery.x,btnGallery.y,btnGallery.w,btnGallery.h);
+
+    ctx.fillStyle="white";
+    ctx.fillText("◀",btnLeft.x+20,btnLeft.y+25);
+    ctx.fillText("▶",btnRight.x+20,btnRight.y+25);
+    ctx.fillText("ENTER",btnEnter.x+15,btnEnter.y+25);
+    ctx.fillText("PAUSE",btnPause.x+15,btnPause.y+25);
+    ctx.fillText("GAL",btnGallery.x+40,btnGallery.y+25);
+
+    requestAnimationFrame(update);
+}
+
+update();
+
+</script>
+</body>
+</html>
